@@ -92,19 +92,26 @@ void draw_line_horizontal(vec2i start, u8 len, color c) {
 #define MAX_PRESSURE 1000
 
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+b8 was_pressed = false;
 
-b8 touched_display() {
+b8 display_pressed() {
   TSPoint p = ts.getPoint();
   
   pinMode(YP, OUTPUT);
   pinMode(XM, OUTPUT);
-  pinMode(YP, OUTPUT);
+  pinMode(YM, OUTPUT);
   pinMode(XP, OUTPUT); 
 
-  if (p.z > MIN_PRESSURE && p.z < MAX_PRESSURE) {
-    return true;
+  b8 cur_pressed = (p.z > MIN_PRESSURE && p.z < MAX_PRESSURE);
+  b8 register_click = false;
+
+  if (cur_pressed && !was_pressed) {
+    register_click = true;
   }
-  return false;
+
+  was_pressed = cur_pressed;
+
+  return register_click;
 }
 
 //
@@ -205,7 +212,7 @@ void update_player(struct player *p) {
     }
     p->air = false;
   }
-  if (touched_display() && !p->air) {
+  if (display_pressed() && !p->air) {
     for (u32 i = 0; i < 3; i++) {
       draw_player(p, BLACK);
       p->pos.y -= p->size.y * 0.4f;
@@ -240,7 +247,6 @@ struct obstacle {
 
   vec2f pos = VEC2F(screen_width, ground_y - size.y);
   f32 speed = 0.1f;
-  b8 scored = false;
 };
 
 void draw_obstacle(struct obstacle *o, color c) {
@@ -277,13 +283,9 @@ void update_obstacles(struct player *p, struct obstacles *os, f32 dt) {
     obstacle *o = &os->data[i];
     update_obstacle(o, dt);
 
-    if (o->pos.x + o->size.x < p->pos.x && !o->scored) {
-      o->scored = true;
-      score += 100;
-    }
-
     if (check_collision_player_obstacle(p, o)) {
       draw_text(VEC2I(screen_width / 6.7, screen_height / 2.5), 4, "GAME OVER", WHITE);
+      score = (millis() - start) * 0.01f;
       draw_score();
       update_highscore();
       delay(2000);
@@ -412,6 +414,4 @@ void loop() {
   update_obstacles(&p, &os, dt);
 
   update_player(&p);
-
-  score = (millis() - start) * 0.01f;
 }
