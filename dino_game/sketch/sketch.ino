@@ -1,132 +1,15 @@
-#include <Adafruit_GFX.h>
-#include <MCUFRIEND_kbv.h>
-#include <TouchScreen.h>
 #include <EEPROM.h>
 
 typedef bool b8;
 typedef float f32;
 typedef int i32;
 
-// {{{ Drawing
-
-#define SECONDS(x) ((x) * 1000)
-
-#define VEC2I(x, y) (vec2i){x, y}
-typedef struct {
-  u16 x, y;
-} vec2i;
-
-#define VEC2F(x, y) (vec2f){x, y}
-typedef struct {
-  f32 x, y;
-} vec2f;
-
-#define VEC2F_TO_VEC2I(v) (vec2i){(v).x, (v).y}
-
-#define RGB(r, g, b) (color){r, g, b}
-typedef struct {
-  u8 r, g, b;
-} color;
-
-#define BLACK   RGB(0, 0, 0)
-#define BLUE    RGB(0, 0, 255)
-#define RED     RGB(255, 0, 0)
-#define GREEN   RGB(0, 255, 0)
-#define WHITE   RGB(255, 255, 255)
-#define YELLOW  RGB(255, 255, 0)
-#define CYAN    RGB(0, 255, 255)
-
-u16 color_to_rgb565(color c) {
-  return ((c.r & 0xF8) << 8) | ((c.g & 0xFC) << 3) | (c.b >> 3);
-}
-
-MCUFRIEND_kbv tft;
-const u16 screen_width = 320;
-const u16 screen_height = 240;
-color bg_color;
-
-void init_display() {
-  u16 id = tft.readID();
-  tft.begin(id);
-  tft.setRotation(3);
-}
-
-void clear_background(color c) {
-  bg_color = c;
-  tft.fillScreen(color_to_rgb565(c));
-}
-
-void draw_pixel(vec2i pos, color c) {
-  tft.drawPixel(pos.x, pos.y, color_to_rgb565(c));
-}
-
-void draw_rect(vec2i pos, vec2i size, color c) {
-  tft.fillRect(pos.x, pos.y, size.x, size.y, color_to_rgb565(c));
-}
-
-void draw_circle(vec2i pos, u16 radius, color c) {
-  tft.fillCircle(pos.x, pos.y, radius, color_to_rgb565(c));
-}
-
-void draw_text(vec2i pos, u16 scale, char *txt, color c) {
-  tft.setCursor(pos.x, pos.y);
-  tft.setTextColor(color_to_rgb565(c), color_to_rgb565(bg_color));
-  tft.setTextSize(scale);
-  tft.println(txt);
-}
-
-void draw_line_horizontal(vec2i start, u8 len, color c) {
-  tft.drawFastHLine(start.x, start.y, len, color_to_rgb565(c));
-}
-
-// }}}
-
-// {{{ Touchscreen
-
-#define YP A3  
-#define XM A2  
-#define YM 9   
-#define XP 8   
-
-#define MIN_PRESSURE 10
-#define MAX_PRESSURE 1000
-
-#define TS_MINX 150
-#define TS_MINY 120
-#define TS_MAXX 920
-#define TS_MAXY 940
-
-TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
-b8 was_pressed = false;
-
-b8 display_pressed(vec2i *v) {
-  TSPoint p = ts.getPoint();
-  
-  pinMode(YP, OUTPUT);
-  pinMode(XM, OUTPUT);
-  pinMode(YM, OUTPUT);
-  pinMode(XP, OUTPUT); 
-
-  b8 cur_pressed = (p.z > MIN_PRESSURE && p.z < MAX_PRESSURE);
-  b8 register_click = false;
-
-  if (cur_pressed && !was_pressed) {
-    u32 pixel_x = map(p.y, TS_MINY, TS_MAXY, screen_width, 0);
-    
-    u32 pixel_y = map(p.x, TS_MINX, TS_MAXX, screen_height, 0);
-    
-    *v = VEC2I(pixel_x, pixel_y);
-    register_click = true;
-  }
-
-  was_pressed = cur_pressed;
-
-  return register_click;
-}
-
-// }}}
+#include "draw.h"
+#include "touch.h"
 
 // {{{ Time
+
+#define SECONDS(x) ((x) * 1000)
 
 f32 old_time = 0;
 
