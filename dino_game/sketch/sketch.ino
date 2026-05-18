@@ -7,9 +7,7 @@ typedef bool b8;
 typedef float f32;
 typedef int i32;
 
-//
-// Drawing
-//
+// {{{ Drawing
 
 #define SECONDS(x) ((x) * 1000)
 
@@ -35,6 +33,8 @@ typedef struct {
 #define RED     RGB(255, 0, 0)
 #define GREEN   RGB(0, 255, 0)
 #define WHITE   RGB(255, 255, 255)
+#define YELLOW  RGB(255, 255, 0)
+#define CYAN    RGB(0, 255, 255)
 
 u16 color_to_rgb565(color c) {
   return ((c.r & 0xF8) << 8) | ((c.g & 0xFC) << 3) | (c.b >> 3);
@@ -48,7 +48,7 @@ color bg_color;
 void init_display() {
   u16 id = tft.readID();
   tft.begin(id);
-  tft.setRotation(1);
+  tft.setRotation(3);
 }
 
 void clear_background(color c) {
@@ -79,9 +79,9 @@ void draw_line_horizontal(vec2i start, u8 len, color c) {
   tft.drawFastHLine(start.x, start.y, len, color_to_rgb565(c));
 }
 
-//
-// Touchscreen
-//
+// }}}
+
+// {{{ Touchscreen
 
 #define YP A3  
 #define XM A2  
@@ -91,10 +91,15 @@ void draw_line_horizontal(vec2i start, u8 len, color c) {
 #define MIN_PRESSURE 10
 #define MAX_PRESSURE 1000
 
+#define TS_MINX 150
+#define TS_MINY 120
+#define TS_MAXX 920
+#define TS_MAXY 940
+
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 b8 was_pressed = false;
 
-b8 display_pressed() {
+b8 display_pressed(vec2i *v) {
   TSPoint p = ts.getPoint();
   
   pinMode(YP, OUTPUT);
@@ -106,6 +111,11 @@ b8 display_pressed() {
   b8 register_click = false;
 
   if (cur_pressed && !was_pressed) {
+    u32 pixel_x = map(p.y, TS_MINY, TS_MAXY, screen_width, 0);
+    
+    u32 pixel_y = map(p.x, TS_MINX, TS_MAXX, screen_height, 0);
+    
+    *v = VEC2I(pixel_x, pixel_y);
     register_click = true;
   }
 
@@ -114,9 +124,9 @@ b8 display_pressed() {
   return register_click;
 }
 
-//
-// Time
-//
+// }}}
+
+// {{{ Time
 
 f32 old_time = 0;
 
@@ -127,15 +137,20 @@ f32 calculate_dt() {
   return dt;
 }
 
-//
-// Project
-//
+// }}}
+
+// {{{ Project
 
 f32 start = 0;
 u32 score = 0;
 u32 last_score = 67;
 i32 highscore = 0;
 const i32 EEPROM_ADDR = 0;
+
+f32 toggle_timer = 0;
+f32 toggle_dt = SECONDS(1);
+b8 toggled = false;
+b8 color_mode = false;
 
 void draw_score() {
   if (last_score == score) {
@@ -150,7 +165,7 @@ void draw_score() {
 void draw_highscore() {
   char str[6];
   snprintf(str, sizeof(str), "%05d", highscore);
-  draw_text(VEC2I(10, 10), 3, str, WHITE);
+  draw_text(VEC2I(10, 10), 3, str, color_mode ? YELLOW : WHITE);
 }
 
 void update_highscore() {
@@ -203,23 +218,37 @@ void draw_player(struct player *p, color c) {
 }
 
 void update_player(struct player *p) {
-  draw_player(p, WHITE);
+  draw_player(p, color_mode ? RGB(0, 150, 3) : WHITE);
   if (p->jmp_timer + p->air_time <= millis() && p->air) {
     for (u32 i = 0; i < 3; i++) {
-      draw_player(p, BLACK);
+      draw_player(p, bg_color);
       p->pos.y += p->size.y * 0.4f;
-      draw_player(p, WHITE);
+      draw_player(p, color_mode ? RGB(0, 150, 3) : WHITE);
     }
     p->air = false;
   }
-  if (display_pressed() && !p->air) {
-    for (u32 i = 0; i < 3; i++) {
-      draw_player(p, BLACK);
-      p->pos.y -= p->size.y * 0.4f;
-      draw_player(p, WHITE);
+  vec2i click_pos;
+  if (display_pressed(&click_pos)) {
+    if (click_pos.x < 100 && click_pos.y < 50 && !toggled) {
+      color_mode = !color_mode;
+      draw_bg();
+      draw_highscore();
+      toggled = true;
+      toggle_timer = millis();
+    } else if (!p->air) {
+      for (u32 i = 0; i < 3; i++) {
+        draw_player(p, bg_color);
+        p->pos.y -= p->size.y * 0.4f;
+        draw_player(p, color_mode ? RGB(0, 150, 3) : WHITE);
+      }
+      p->air = true;
+      p->jmp_timer = millis();
     }
-    p->air = true;
-    p->jmp_timer = millis();
+  }
+  if (toggled) {
+    if (toggle_timer + toggle_dt <= millis()) {
+      toggled = false;
+    }
   }
 }
 
@@ -258,9 +287,9 @@ void draw_obstacle(struct obstacle *o, color c) {
 }
 
 void update_obstacle(struct obstacle *o, f32 dt) {
-  draw_obstacle(o, BLACK);
+  draw_obstacle(o, bg_color);
   o->pos.x -= o->speed * dt;
-  draw_obstacle(o, WHITE);
+  draw_obstacle(o, color_mode ? GREEN : WHITE);
 }
 
 bool check_collision_player_obstacle(struct player *p, struct obstacle *o) {
@@ -284,7 +313,7 @@ void update_obstacles(struct player *p, struct obstacles *os, f32 dt) {
     update_obstacle(o, dt);
 
     if (check_collision_player_obstacle(p, o)) {
-      draw_text(VEC2I(screen_width / 6.7, screen_height / 2.5), 4, "GAME OVER", WHITE);
+      draw_text(VEC2I(screen_width / 6.7, screen_height / 2.5), 4, "GAME OVER", color_mode ? RED : WHITE);
       score = (millis() - start) * 0.01f;
       draw_score();
       update_highscore();
@@ -301,7 +330,7 @@ void update_obstacles(struct player *p, struct obstacles *os, f32 dt) {
   }
 
   if (os->size > 0 && (os->data[0].pos.x + os->data[0].size.x < 10)) {
-    draw_obstacle(&os->data[0], BLACK); 
+    draw_obstacle(&os->data[0], bg_color); 
     
     for (u16 i = 0; i < os->size - 1; i++) {
       os->data[i] = os->data[i + 1];
@@ -325,6 +354,16 @@ struct cloud {
 
   u8 sprite[24 * 8] = {
     0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0,
+    0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0,
+    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+    0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
+  };
+  u8 sprite_color_mode[24 * 8] = {
+    0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0,
     0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
     0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
@@ -336,15 +375,23 @@ struct cloud {
 };
 
 void draw_cloud(struct cloud *cl, color c) {
-  for (u32 i = 0; i < 24 * 8; i++) {
-    if (cl->sprite[i] == 1) {
-      draw_pixel(VEC2I((u16)cl->pos.x + i % cl->size.x, (u16)cl->pos.y + i / cl->size.x), c);
+  if (color_mode) {
+    for (u32 i = 0; i < 24 * 8; i++) {
+      if (cl->sprite_color_mode[i] == 1) {
+        draw_pixel(VEC2I((u16)cl->pos.x + i % cl->size.x, (u16)cl->pos.y + i / cl->size.x), c);
+      }
+    }
+  } else {
+    for (u32 i = 0; i < 24 * 8; i++) {
+      if (cl->sprite[i] == 1) {
+        draw_pixel(VEC2I((u16)cl->pos.x + i % cl->size.x, (u16)cl->pos.y + i / cl->size.x), c);
+      }
     }
   }
 }
 
 void update_cloud(struct cloud *c, f32 dt) {
-  draw_cloud(c, BLACK);
+  draw_cloud(c, bg_color);
   c->pos.x -= c->speed * dt;
   draw_cloud(c, WHITE);
 }
@@ -364,7 +411,7 @@ void update_sky(struct sky *s, f32 dt) {
   }
 
   if (s->clouds_size > 0 && (s->clouds[0].pos.x + s->clouds[0].size.x < 10)) {
-    draw_cloud(&s->clouds[0], BLACK); 
+    draw_cloud(&s->clouds[0], bg_color); 
     
     for (u16 i = 0; i < s->clouds_size - 1; i++) {
       s->clouds[i] = s->clouds[i + 1];
@@ -384,9 +431,13 @@ void update_sky(struct sky *s, f32 dt) {
 }
 
 void draw_bg() {
-  clear_background(BLACK);
-  draw_line_horizontal(VEC2I(0, ground_y), screen_width * 0.5f, WHITE);
-  draw_line_horizontal(VEC2I(screen_width * 0.5f, ground_y), screen_width * 0.5f, WHITE);
+  clear_background(color_mode ? CYAN : BLACK);
+  if (color_mode) {
+    draw_rect(VEC2I(0, ground_y), VEC2I(screen_width, screen_height - ground_y), RGB(200, 200, 105));
+  } else {
+    draw_line_horizontal(VEC2I(0, ground_y), screen_width * 0.5f, WHITE);
+    draw_line_horizontal(VEC2I(screen_width * 0.5f, ground_y), screen_width * 0.5f, WHITE);
+  }
 }
 
 player p;
@@ -415,3 +466,5 @@ void loop() {
 
   update_player(&p);
 }
+
+// }}}
