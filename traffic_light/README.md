@@ -5,3 +5,4 @@ A simple traffic light made out of 3 LEDs with the matching colors of a traffic 
 ![img](img/schematic.png)
 ## Web Sever
 ![img](img/screenshot.png)
+**design of user interface on web is made by AI*
